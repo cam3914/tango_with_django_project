@@ -8,23 +8,64 @@ from django.contrib.auth import authenticate, login, logout
 from django.http import HttpResponseRedirect, HttpResponse
 from django.core.urlresolvers import reverse
 from django.contrib.auth.decorators import login_required
+from datetime import datetime
 
+# A helper method
+def get_server_side_cookie(request, cookie, default_val=None):
+    val = request.session.get(cookie)
+    if not val:
+        val = default_val
+    return val
+    
+def visitor_cookie_handler(request):
+    visits = int(get_server_side_cookie(request, 'visits', '1' ))
+    last_visit_cookie = get_server_side_cookie(request, 'last_visit', str(datetime.now()))
+    last_visit_time= datetime.strptime(last_visit_cookie[:-7], '%Y-%m-%d %H:%M:%S')
 
+    if (datetime.now() - last_visit_time).seconds > 0:
+        visits = visits + 1
+        request.session['last_visit'] = str(datetime.now())
+    else:
+        request.session['last_visit'] =  last_visit_cookie
+
+    request.session['visits'] =  visits
+    
 def index(request):
+    request.session.set_test_cookie()
     #Query db
     category_list = Category.objects.order_by('-likes')[:5]
     page_list = Page.objects.order_by('-views')[:5]
     # Construct a dictionary to pass to the template engine as its context
     context_dict = {'categories': category_list,
                     'pages': page_list }
-    # Return  a rendered response to send to the client
-    return render(request, 'rango/index.html', context=context_dict)
+    
+    # Call cookie helper function
+    visitor_cookie_handler(request)
+    context_dict['visits'] = request.session['visits']
+    context_dict['last_visit'] = request.session['last_visit']
+
+    # Create response object    
+    response = render(request, 'rango/index.html', context_dict)
+
+    return response
+    
 
 def about(request):
+    if request.session.test_cookie_worked():
+        print("TEST COOKIE WORKED!")
+        request.session.delete_test_cookie()
+
     # Construct a dictionary to pass to the template engine as its context
     context_dict = {'excerciseline': "This tutorial has been put together by Cameron McCosh."}
-    # Return  a rendered response to send to the client
-    return render(request, 'rango/about.html', context=context_dict)
+    
+    # Call cookie helper function
+    visitor_cookie_handler(request)
+    context_dict['visits'] = request.session['visits']
+
+    # Create response object    
+    response = render(request, 'rango/about.html', context_dict)
+
+    return response
 
 def show_category(request, category_name_slug):
     # Create context dictionary
@@ -135,7 +176,6 @@ def register(request):
                    'registered': registered})
     
 def user_login(request):
-    context_dict = {}
     if request.method == 'POST':
         username = request.POST.get('username')
         password = request.POST.get('password')
@@ -150,11 +190,11 @@ def user_login(request):
                 return HttpResponse("Your Rango account is disabled.")
 
         else:
-            context_dict['error'] = "Invalid username or password."
-            return render(request, 'rango/login.html', context_dict)
+            print("Invalid login details: {0}, {1}".format(username, password))
+            return HttpResponse("Invalid login details supplied.")
 
     else:
-        return render(request, 'rango/login.html', context_dict)
+        return render(request, 'rango/login.html', {})
         
 @login_required
 def restricted(request):
